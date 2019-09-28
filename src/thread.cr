@@ -49,6 +49,9 @@ class Thread
     @th = LibC.pthread_self
     @main_fiber = Fiber.new(stack_address, self)
 
+    resume_event.add
+    exit_event.add
+
     Thread.threads.push(self)
   end
 
@@ -128,6 +131,9 @@ class Thread
     Thread.threads.push(self)
     Thread.current = self
     @main_fiber = fiber = Fiber.new(stack_address, self)
+
+    resume_event.add
+    exit_event.add
 
     begin
       @func.call

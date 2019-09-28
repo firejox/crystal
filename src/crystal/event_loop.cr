@@ -3,6 +3,24 @@ require "./event"
 class Thread
   # :nodoc:
   getter(event_base) { Crystal::Event::Base.new }
+
+  # :nodoc:
+  @resume_event : Crystal::Event?
+
+  def resume_event
+    @resume_event ||= event_base.new_event(-1, LibEvent2::EventFlags::Persist, self) do |s, flags, data|
+      data.as(Thread).event_base.loop_exit
+    end
+  end
+
+  # :nodoc:
+  @exit_event : Crystal::Event?
+
+  def exit_event
+    @exit_event ||= event_base.new_event(-1, LibEvent2::EventFlags::Read, self) do |s, flags, data|
+      data.as(Thread).event_base.loop_exit
+    end
+  end
 end
 
 module Crystal::EventLoop

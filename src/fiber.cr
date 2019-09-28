@@ -2,6 +2,7 @@ require "c/sys/mman"
 require "thread/linked_list"
 require "./fiber/context"
 require "./fiber/stack_pool"
+require "static_list"
 
 # :nodoc:
 @[NoInline]
@@ -24,6 +25,8 @@ class Fiber
   property name : String?
   @alive = true
   @current_thread = Atomic(Thread?).new(nil)
+
+  @pending_link = uninitialized StaticList
 
   # :nodoc:
   property next : Fiber?
