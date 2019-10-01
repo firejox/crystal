@@ -91,16 +91,13 @@ class Crystal::Scheduler
     {% if flag?(:preview_mt) %}
       set_current_thread(fiber)
       GC.lock_read
+      fiber.add_gc_read_unlock_helper
     {% else %}
       GC.set_stackbottom(fiber.@stack_bottom)
     {% end %}
 
     current, @current = @current, fiber
     Fiber.swapcontext(pointerof(current.@context), pointerof(fiber.@context))
-
-    {% if flag?(:preview_mt) %}
-      GC.unlock_read
-    {% end %}
   end
 
   private def validate_resumable(fiber)

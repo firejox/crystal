@@ -71,7 +71,6 @@ class Fiber
 
   # :nodoc:
   def run
-    GC.unlock_read
     @proc.call
   rescue ex
     if name = @name

@@ -72,4 +72,11 @@ class Fiber
 
     asm("popq %rdi")
   end
+
+  # :nodoc:
+  def add_gc_read_unlock_helper
+    stack_ptr = @context.stack_top.as(Pointer(Void*))
+    @context.stack_top = (stack_ptr - 1).as(Void*)
+    stack_ptr[-1] = (->GC.unlock_read).pointer
+  end
 end
