@@ -8,7 +8,7 @@ class Thread
   # Use spawn and channels instead.
 
   # all thread objects, so the GC can see them (it doesn't scan thread locals)
-  protected class_getter(threads) { Thread::LinkedList(Thread).new }
+  protected class_getter(threads) { Thread::LinkedList.new }
 
   @th : LibC::PthreadT
   @exception : Exception?
@@ -16,20 +16,15 @@ class Thread
   @main_fiber : Fiber?
 
   # :nodoc:
-  property next : Thread?
-
-  # :nodoc:
-  property previous : Thread?
-
-  # :nodoc:
   property gc_thread_handler : Void* = Pointer(Void).null
 
   def self.unsafe_each
-    threads.unsafe_each { |thread| yield thread }
+    threads.unsafe_each { |it| yield container_of(it, Thread, @link) }
   end
 
   # Starts a new system thread.
   def initialize(&@func : ->)
+    @link = uninitialized StaticList
     @th = uninitialized LibC::PthreadT
 
     ret = GC.pthread_create(pointerof(@th), Pointer(LibC::PthreadAttrT).null, ->(data : Void*) {
@@ -45,11 +40,12 @@ class Thread
   # Used once to initialize the thread object representing the main thread of
   # the process (that already exists).
   def initialize
+    @link = uninitialized StaticList
     @func = ->{}
     @th = LibC.pthread_self
     @main_fiber = Fiber.new(stack_address, self)
 
-    Thread.threads.push(self)
+    Thread.threads.push pointerof(@link)
   end
 
   private def detach
@@ -125,7 +121,7 @@ class Thread
   end
 
   protected def start
-    Thread.threads.push(self)
+    Thread.threads.push pointerof(@link)
     Thread.current = self
     @main_fiber = fiber = Fiber.new(stack_address, self)
 
@@ -134,7 +130,7 @@ class Thread
     rescue ex
       @exception = ex
     ensure
-      Thread.threads.delete(self)
+      Thread.threads.delete pointerof(@link)
       Fiber.inactive(fiber)
       detach { GC.pthread_detach(@th) }
     end
