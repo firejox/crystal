@@ -39,8 +39,14 @@ class Crystal::Scheduler
     end
   end
 
+  def self.reschedule_internal : Nil
+    Thread.current.scheduler.reschedule do |fiber|
+      yield fiber
+    end
+  end
+
   def self.reschedule : Nil
-    Thread.current.scheduler.reschedule
+    self.reschedule_internal { nil }
   end
 
   def self.resume(fiber : Fiber) : Nil
@@ -60,14 +66,7 @@ class Crystal::Scheduler
   end
 
   {% if flag?(:preview_mt) %}
-    def self.enqueue_free_stack(stack : Void*) : Nil
-      Thread.current.scheduler.enqueue_free_stack(stack)
-    end
-  {% end %}
-
-  {% if flag?(:preview_mt) %}
     @fiber_channel = Crystal::FiberChannel.new
-    @free_stacks = Deque(Void*).new
   {% end %}
   @lock = Crystal::SpinLock.new
   @sleeping = false
@@ -120,22 +119,11 @@ class Crystal::Scheduler
     exit 1
   end
 
-  {% if flag?(:preview_mt) %}
-    protected def enqueue_free_stack(stack)
-      @free_stacks.push stack
-    end
-
-    private def release_free_stacks
-      while stack = @free_stacks.shift?
-        Fiber.stack_pool.release stack
-      end
-    end
-  {% end %}
-
   protected def reschedule : Nil
     loop do
       if runnable = @lock.sync { @runnables.shift? }
         unless runnable == Fiber.current
+          yield runnable
           runnable.resume
         end
         break
@@ -143,15 +131,11 @@ class Crystal::Scheduler
         Crystal::EventLoop.run_once
       end
     end
-
-    {% if flag?(:preview_mt) %}
-      release_free_stacks
-    {% end %}
   end
 
   protected def sleep(time : Time::Span) : Nil
     @current.resume_event.add(time)
-    reschedule
+    reschedule { nil }
   end
 
   protected def yield : Nil

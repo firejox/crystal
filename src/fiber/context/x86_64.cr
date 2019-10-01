@@ -79,4 +79,14 @@ class Fiber
     @context.stack_top = (stack_ptr - 1).as(Void*)
     stack_ptr[-1] = (->GC.unlock_read).pointer
   end
+
+  # :nodoc:
+  protected def add_stack_release_helper(s : Void*)
+    proc = ->(ptr : Void*) { Fiber.stack_pool.release(ptr) }
+    stack_ptr = @context.stack_top.as(Pointer(Void*))
+    @context.stack_top = (stack_ptr - 3).as(Void*)
+    stack_ptr[-1] = proc.pointer
+    stack_ptr[-2] = s
+    stack_ptr[-3] = (->Fiber.load_first_argument).pointer
+  end
 end
