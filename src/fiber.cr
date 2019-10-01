@@ -50,6 +50,9 @@ class Fiber
 
     makecontext(stack_ptr, fiber_main)
 
+    @waiting_link = uninitialized StaticList
+    @waiting_link.init
+
     @link = uninitialized StaticList
     Fiber.fibers.push pointerof(@link)
   end
@@ -61,6 +64,9 @@ class Fiber
     thread.gc_thread_handler, @stack_bottom = GC.current_thread_stack_bottom
     @name = "main"
     @current_thread.set(thread)
+
+    @waiting_link = uninitialized StaticList
+    @waiting_link.init
 
     @link = uninitialized StaticList
     Fiber.fibers.push pointerof(@link)

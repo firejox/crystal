@@ -1,11 +1,16 @@
 require "crystal/spin_lock"
+require "static_list"
 
 # A fiber-safe mutex.
 class Mutex
   @mutex_fiber : Fiber?
-  @lock_count = 0
-  @queue = Deque(Fiber).new
-  @lock = Crystal::SpinLock.new
+
+  def initialize
+    @lock_count = 0
+    @lock = Crystal::SpinLock.new
+    @list = uninitialized StaticList
+    @list.init
+  end
 
   def lock
     @lock.lock
@@ -19,9 +24,15 @@ class Mutex
       @lock_count += 1 # recursive lock
       @lock.unlock
     else
-      @queue << current_fiber
-      @lock.unlock
-      Crystal::Scheduler.reschedule
+      Fiber.current.@waiting_link.append_to pointerof(@list)
+      {% if flag?(:preview_mt) %}
+        Crystal::Scheduler.reschedule_internal do |fiber|
+          fiber.add_spin_unlock_helper @lock
+        end
+      {% else %}
+        @lock.unlock
+        Crystal::Scheduler.reschedule
+      {% end %}
     end
 
     nil
@@ -30,23 +41,23 @@ class Mutex
   def unlock
     @lock.lock
 
-    begin
-      unless @mutex_fiber == Fiber.current
-        raise "Attempt to unlock a mutex which is not locked"
-      end
+    unless @mutex_fiber == Fiber.current
+      @lock.unlock
+      raise "Attempt to unlock a mutex which is not locked"
+    end
 
-      if @lock_count > 0
-        @lock_count -= 1
-        return
-      end
+    if @lock_count > 0
+      @lock_count -= 1
+      @lock.unlock
+      return
+    end
 
-      if fiber = @queue.try &.shift?
-        @mutex_fiber = fiber
-        fiber.enqueue
-      else
-        @mutex_fiber = nil
-      end
-    ensure
+    if link = @list.shift?
+      @mutex_fiber = fiber = container_of(link, Fiber, @waiting_link)
+      @lock.unlock
+      fiber.enqueue
+    else
+      @mutex_fiber = nil
       @lock.unlock
     end
 

@@ -89,4 +89,14 @@ class Fiber
     stack_ptr[-2] = s
     stack_ptr[-3] = (->Fiber.load_first_argument).pointer
   end
+
+  # :nodoc:
+  def add_spin_unlock_helper(s : Crystal::SpinLock)
+    proc = ->(m : Crystal::SpinLock) { m.unlock }
+    stack_ptr = @context.stack_top.as(Pointer(Void*))
+    @context.stack_top = (stack_ptr - 3).as(Void*)
+    stack_ptr[-1] = proc.pointer
+    stack_ptr[-2] = s.as(Void*)
+    stack_ptr[-3] = (->Fiber.load_first_argument).pointer
+  end
 end
