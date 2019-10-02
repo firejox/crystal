@@ -23,11 +23,7 @@ class Crystal::Scheduler
         th = Thread.current.scheduler.find_target_thread
       end
 
-      if th == Thread.current
-        Thread.current.scheduler.enqueue(fiber)
-      else
-        th.scheduler.send_fiber(fiber)
-      end
+      th.scheduler.send_fiber(fiber)
     {% else %}
       Thread.current.scheduler.enqueue(fiber)
     {% end %}
@@ -159,6 +155,20 @@ class Crystal::Scheduler
       end
     end
 
+    protected def channel_receive : Fiber
+      th = Thread.current
+      th.exit_event.add
+
+      receiver = Crystal::FiberChannel::Receiver.new th.resume_event
+
+      unless receiver.receive_from @fiber_channel
+        Crystal::EventLoop.run_loop
+      end
+
+      th.exit_event.remove
+      receiver.@fiber.not_nil!
+    end
+
     def run_loop
       loop do
         @lock.lock
@@ -169,7 +179,8 @@ class Crystal::Scheduler
         else
           @sleeping = true
           @lock.unlock
-          fiber = @fiber_channel.receive
+
+          fiber = channel_receive
 
           @lock.lock
           @sleeping = false
