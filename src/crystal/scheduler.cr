@@ -23,7 +23,7 @@ class Crystal::Scheduler
         th = Thread.current.scheduler.find_target_thread
       end
 
-      th.scheduler.send_fiber(fiber)
+      th.scheduler.enqueue(fiber)
     {% else %}
       Thread.current.scheduler.enqueue(fiber)
     {% end %}
@@ -42,7 +42,11 @@ class Crystal::Scheduler
   end
 
   def self.reschedule : Nil
-    self.reschedule_internal { nil }
+    {% if flag?(:preview_mt) %}
+      self.reschedule_internal { nil }
+    {% else %}
+      self.reschedule_internal { |fiber| return if fiber.running? }
+    {% end %}
   end
 
   def self.resume(fiber : Fiber) : Nil
@@ -62,23 +66,22 @@ class Crystal::Scheduler
   end
 
   {% if flag?(:preview_mt) %}
-    @fiber_channel = Crystal::FiberChannel.new
+    @loop_fiber : Fiber?
   {% end %}
-  @lock = Crystal::SpinLock.new
-  @sleeping = false
 
   # :nodoc:
   def initialize(@main : Fiber)
     @current = @main
-    @runnables = Deque(Fiber).new
+    @fiber_channel = Crystal::FiberChannel.new
   end
 
   protected def enqueue(fiber : Fiber) : Nil
-    @lock.sync { @runnables << fiber }
+    # TODO some bugs in other place will send dead fiber
+    @fiber_channel.send fiber unless fiber.dead?
   end
 
   protected def enqueue(fibers : Enumerable(Fiber)) : Nil
-    @lock.sync { @runnables.concat fibers }
+    fibers.each { |fiber| enqueue fiber }
   end
 
   protected def resume(fiber : Fiber) : Nil
@@ -116,17 +119,11 @@ class Crystal::Scheduler
   end
 
   protected def reschedule : Nil
-    loop do
-      if runnable = @lock.sync { @runnables.shift? }
-        unless runnable == Fiber.current
-          yield runnable
-          runnable.resume
-        end
-        break
-      else
-        Crystal::EventLoop.run_once
-      end
-    end
+    {% if flag?(:preview_mt) %}
+      resume channel_receive_non_block.tap { |fiber| yield fiber }
+    {% else %}
+      resume channel_receive.tap { |fiber| yield fiber }
+    {% end %}
   end
 
   protected def sleep(time : Time::Span) : Nil
@@ -143,7 +140,29 @@ class Crystal::Scheduler
     resume(fiber)
   end
 
+  protected def channel_receive : Fiber
+    th = Thread.current
+    th.exit_event.add
+
+    receiver = Crystal::FiberChannel::Receiver.new th.resume_event
+
+    unless receiver.receive_from @fiber_channel
+      Crystal::EventLoop.run_loop
+    end
+
+    th.exit_event.remove
+    receiver.@fiber.not_nil!
+  end
+
   {% if flag?(:preview_mt) %}
+    protected def loop_fiber=(fiber : Fiber)
+      @loop_fiber = fiber
+    end
+
+    protected def loop_fiber : Fiber
+      @loop_fiber.not_nil!
+    end
+
     @rr_target = 0
 
     protected def find_target_thread
@@ -155,50 +174,18 @@ class Crystal::Scheduler
       end
     end
 
-    protected def channel_receive : Fiber
-      th = Thread.current
-      th.exit_event.add
-
-      receiver = Crystal::FiberChannel::Receiver.new th.resume_event
-
-      unless receiver.receive_from @fiber_channel
-        Crystal::EventLoop.run_loop
+    protected def channel_receive_non_block : Fiber
+      if fiber = @fiber_channel.try_receive?
+        fiber
+      else
+        loop_fiber
       end
-
-      th.exit_event.remove
-      receiver.@fiber.not_nil!
     end
 
     def run_loop
       loop do
-        @lock.lock
-        if runnable = @runnables.shift?
-          @runnables << Fiber.current
-          @lock.unlock
-          runnable.resume
-        else
-          @sleeping = true
-          @lock.unlock
-
-          fiber = channel_receive
-
-          @lock.lock
-          @sleeping = false
-          @runnables << Fiber.current
-          @lock.unlock
-          fiber.resume
-        end
+        resume channel_receive
       end
-    end
-
-    def send_fiber(fiber : Fiber)
-      @lock.lock
-      if @sleeping
-        @fiber_channel.send(fiber)
-      else
-        @runnables << fiber
-      end
-      @lock.unlock
     end
 
     def self.init_workers
@@ -207,11 +194,12 @@ class Crystal::Scheduler
       @@workers = Array(Thread).new(count) do |i|
         if i == 0
           worker_loop = Fiber.new(name: "Worker Loop") { Thread.current.scheduler.run_loop }
-          Thread.current.scheduler.enqueue worker_loop
+          Thread.current.scheduler.loop_fiber = worker_loop
           Thread.current
         else
           Thread.new do
             scheduler = Thread.current.scheduler
+            scheduler.loop_fiber = scheduler.@main
             pending.sub(1)
             scheduler.run_loop
           end

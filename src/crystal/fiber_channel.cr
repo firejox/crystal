@@ -49,4 +49,12 @@ class Crystal::FiberChannel
       @mutex.unlock
     end
   end
+
+  def try_receive? : Fiber?
+    @mutex.lock
+    _fiber = @fibers.shift?
+    @mutex.unlock
+
+    _fiber.try { |f| container_of(f, Fiber, @waiting_link) }
+  end
 end
