@@ -3,7 +3,7 @@ require "static_list"
 
 class Semaphore
   @count : Int32
-  
+
   def initialize(@count : Int32)
     @mutex = Crystal::SpinLock.new
     @list = uninitialized StaticList
