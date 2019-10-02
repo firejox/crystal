@@ -7,7 +7,7 @@ class Crystal::SpinLock
   def lock
     {% if flag?(:preview_mt) %}
       while @m.swap(1) == 1
-        while @m.get == 1
+        while @m.lazy_get == 1
           Intrinsics.pause
         end
       end
