@@ -4,7 +4,7 @@ require "static_list"
 class Semaphore
   @count : Int32
 
-  def initialize(@count : Int32)
+  def initialize(@count : Int32, @blocking = false)
     @mutex = Crystal::SpinLock.new
     @list = uninitialized StaticList
     @list.init
@@ -34,9 +34,27 @@ class Semaphore
     if @count <= 0
       link = @list.shift
       @mutex.unlock
-      Crystal::Scheduler.enqueue container_of(link, Fiber, @waiting_link)
+
+      if @blocking
+        Crystal::Scheduler.yield container_of(link, Fiber, @waiting_link)
+      else
+        Crystal::Scheduler.enqueue container_of(link, Fiber, @waiting_link)
+      end
     else
       @mutex.unlock
+    end
+  end
+
+  def reset(c : Int32)
+    list = StaticList.new
+    list.init
+    @mutex.lock
+    @count = c
+    @list.list_append_to pointerof(list)
+    @mutex.unlock
+
+    list.each do |it|
+      Crystal::Scheduler.enqueue container_of(it, Fiber, @waiting_link)
     end
   end
 end
