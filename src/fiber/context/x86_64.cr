@@ -99,4 +99,14 @@ class Fiber
     stack_ptr[-2] = s.as(Void*)
     stack_ptr[-3] = (->Fiber.load_first_argument).pointer
   end
+
+  # :nodoc:
+  def add_select_actions_unlock_helper(s : Array(Channel::SelectAction))
+    proc = ->{ s.each &.unlock }
+    stack_ptr = @context.stack_top.as(Pointer(Void*))
+    @context.stack_top = (stack_ptr - 3).as(Void*)
+    stack_ptr[-1] = proc.pointer
+    stack_ptr[-2] = proc.closure_data
+    stack_ptr[-3] = (->Fiber.load_first_argument).pointer
+  end
 end
