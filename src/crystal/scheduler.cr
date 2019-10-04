@@ -128,7 +128,7 @@ class Crystal::Scheduler
 
   protected def sleep(time : Time::Span) : Nil
     @current.resume_event.add(time)
-    reschedule { nil }
+    typeof(self).reschedule
   end
 
   protected def yield : Nil
