@@ -308,8 +308,9 @@ class Channel(T)
   end
 
   private def dequeue_receiver
-    while receiver_ptr = @receivers.shift?.try { |it| container_of(it, Receiver(T), @link) }
+    while receiver_ptr = container_of?(@receivers.shift?, Receiver(T), @link)
       if (select_context = receiver_ptr.value.@select_context) && !select_context.try_trigger
+        receiver_ptr.value.@link.init
         next
       end
 
@@ -320,8 +321,9 @@ class Channel(T)
   end
 
   private def dequeue_sender
-    while sender_ptr = @senders.shift?.try { |it| container_of(it, Sender(T), @link) }
+    while sender_ptr = container_of?(@senders.shift?, Sender(T), @link)
       if (select_context = sender_ptr.value.@select_context) && !select_context.try_trigger
+        sender_ptr.value.@link.init
         next
       end
 
@@ -463,7 +465,7 @@ class Channel(T)
     end
 
     def unwait
-      if @receiver.@state == TransferState::None
+      if !@channel.closed? && @receiver.@state == TransferState::None
         @receiver.@link.unlink
       end
     end
@@ -515,7 +517,7 @@ class Channel(T)
     end
 
     def unwait
-      if @sender.state == TransferState::None
+      if !@channel.closed? && @sender.state == TransferState::None
         @sender.link.unlink
       end
     end
