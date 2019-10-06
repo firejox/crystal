@@ -134,19 +134,19 @@ class Channel(T)
   end
 
   def close : Nil
-    _senders = uninitialized StaticList
-    _senders.init
+    senders = uninitialized StaticList
+    senders.init
 
-    _receivers = uninitialized StaticList
-    _receivers.init
+    receivers = uninitialized StaticList
+    receivers.init
 
     @lock.sync do
       @closed = true
-      @senders.list_append_to pointerof(_senders)
-      @receivers.list_append_to pointerof(_receivers)
+      @senders.list_append_to pointerof(senders)
+      @receivers.list_append_to pointerof(receivers)
     end
 
-    _senders.each do |it|
+    senders.each do |it|
       sender_ptr = container_of(it, Sender(T), @link)
 
       if (select_context = sender_ptr.value.@select_context) && !select_context.try_trigger
@@ -157,7 +157,7 @@ class Channel(T)
       end
     end
 
-    _receivers.each do |it|
+    receivers.each do |it|
       receiver_ptr = container_of(it, Receiver(T), @link)
 
       if (select_context = receiver_ptr.value.@select_context) && !select_context.try_trigger
@@ -199,10 +199,10 @@ class Channel(T)
         Crystal::Scheduler.reschedule
       {% end %}
 
-      tmp = sender.@state
-      if tmp == TransferState::Closed
+      state = sender.@state
+      if state == TransferState::Closed
         raise ClosedError.new
-      elsif tmp != TransferState::Succeed
+      elsif state != TransferState::Succeed
         raise "BUG: Fiber was awaken without channel transfer state set"
       end
     end
