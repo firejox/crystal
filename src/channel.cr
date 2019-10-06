@@ -26,15 +26,11 @@ class Channel(T)
     extend self
   end
 
-  module Closed
-    extend self
-  end
-
   module SelectAction(S)
     abstract def execute : TransferState
     abstract def wait(context : SelectContext(S))
     abstract def unwait
-    abstract def result : Closed | S
+    abstract def result : S
     abstract def lock_object_id
     abstract def lock
     abstract def unlock
@@ -90,13 +86,16 @@ class Channel(T)
       @link = uninitialized StaticList
     end
 
+    def value=(@value : T)
+    end
+
     def fiber=(@fiber : Fiber)
     end
 
     def state=(@state : TransferState)
     end
 
-    def select_context=(@select_context : SelectContext(T))
+    def select_context=(@select_context : SelectContext(Nil))
     end
   end
 
@@ -446,12 +445,12 @@ class Channel(T)
       @receiver.state = state
     end
 
-    def result : Channel::Closed | T
+    def result : T
       case @receiver.@state
       when TransferState::Succeed
         @receiver.@value
       when TransferState::Closed
-        Channel::Closed
+        raise ClosedError.new
       else
         raise "BUG : Fiber was awaken but without accepted channel transfer state set"
       end
@@ -499,7 +498,7 @@ class Channel(T)
       @sender.state = state
     end
 
-    def result : Channel::Closed | Nil
+    def result : Nil
       state = @sender.@state
 
       if state == TransferState::Closed
@@ -517,8 +516,8 @@ class Channel(T)
     end
 
     def unwait
-      if !@channel.closed? && @sender.state == TransferState::None
-        @sender.link.unlink
+      if !@channel.closed? && @sender.@state == TransferState::None
+        @sender.@link.unlink
       end
     end
 
