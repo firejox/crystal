@@ -114,14 +114,14 @@ describe "select" do
     ch3 = Channel(Int32).new
     x = nil
 
-    spawn do
+    spawn(same_thread: true) do
       select
       when x = ch1.receive
       when x = ch2.receive
       end
     end
 
-    spawn do
+    spawn(same_thread: true) do
       ch1.send 1
       ch3.send 3
       ch2.close
@@ -138,7 +138,7 @@ describe "select" do
     ch3 = Channel(Int32).new
     x = nil
 
-    spawn do
+    spawn(same_thread: true) do
       select
       when ch1.send 1
         x = 1
@@ -147,7 +147,7 @@ describe "select" do
       end
     end
 
-    spawn do
+    spawn(same_thread: true) do
       ch1.receive
       ch3.send 3
       ch2.close
