@@ -1546,30 +1546,52 @@ class Array(T)
   end
 
   def rotate!(n = 1)
-    return self if size == 0
-    n %= size
-    return self if n == 0
-    if n <= size // 2
-      tmp = self[0..n]
-      @buffer.move_from(@buffer + n, size - n)
-      (@buffer + size - n).copy_from(tmp.to_unsafe, n)
+    return self if empty?
+    sz = @size
+    n %= sz
+
+    case n
+    when 0
+      # ignore
+    when 1
+      tmp = @buffer[0]
+      @buffer.move_from(@buffer + 1, sz - 1)
+      @buffer[sz - 1] = tmp
+    when .<= SMALL_ARRAY_SIZE
+      tmp_buffer = uninitialized StaticArray(T, SMALL_ARRAY_SIZE)
+      tmp_buffer.to_unsafe.copy_from(@buffer, n)
+      @buffer.move_from(@buffer + n, sz - n)
+      (@buffer + sz - n).copy_from(tmp_buffer.to_unsafe, n)
+    when .< (sz - SMALL_ARRAY_SIZE)
+      tmp_slice = Slice.new(@buffer, sz)
+      tmp_slice[0...n].reverse!
+      tmp_slice[n..-1].reverse!
+      tmp_slice.reverse!
+    when .< (sz - 1)
+      tmp_buffer = uninitialized StaticArray(T, SMALL_ARRAY_SIZE)
+      tmp_buffer.to_unsafe.copy_from(@buffer + n, sz - n)
+      (@buffer + sz - n).move_from(@buffer, n)
+      @buffer.copy_from(tmp_buffer.to_unsafe, sz - n)
     else
-      tmp = self[n..-1]
-      (@buffer + size - n).move_from(@buffer, n)
-      @buffer.copy_from(tmp.to_unsafe, size - n)
+      tmp = @buffer[sz - 1]
+      (@buffer + 1).move_from(@buffer, sz - 1)
+      @buffer[0] = tmp
     end
+
     self
   end
 
   def rotate(n = 1)
-    return self if size == 0
-    n %= size
-    return self if n == 0
-    res = Array(T).new(size)
-    res.to_unsafe.copy_from(@buffer + n, size - n)
-    (res.to_unsafe + size - n).copy_from(@buffer, n)
-    res.size = size
-    res
+    return typeof(self).new if empty?
+    sz = @size
+    n %= sz
+    return self.dup if n == 0
+
+    typeof(self).build(sz) do |buffer|
+      buffer.copy_from(@buffer + n, sz - n)
+      (buffer + sz - n).copy_from(@buffer, n)
+      sz
+    end
   end
 
   # Returns *n* number of random elements from `self`, using the given *random* number generator.
