@@ -41,6 +41,10 @@ class Crystal::Scheduler
   end
 
   def self.reschedule : Nil
+    Thread.current.scheduler.reschedule { |fiber| yield fiber }
+  end
+
+  def self.reschedule : Nil
     Thread.current.scheduler.reschedule
   end
 
@@ -103,16 +107,13 @@ class Crystal::Scheduler
     {% if flag?(:preview_mt) %}
       set_current_thread(fiber)
       GC.lock_read
+      fiber.add_gc_read_unlock_helper
     {% else %}
       GC.set_stackbottom(fiber.@stack_bottom)
     {% end %}
 
     current, @current = @current, fiber
     Fiber.swapcontext(pointerof(current.@context), pointerof(fiber.@context))
-
-    {% if flag?(:preview_mt) %}
-      GC.unlock_read
-    {% end %}
   end
 
   private def validate_resumable(fiber)
@@ -152,26 +153,16 @@ class Crystal::Scheduler
         end
       end
     end
-
-    protected def enqueue_free_stack(stack)
-      @free_stacks.push stack
-    end
-
-    private def release_free_stacks
-      while stack = @free_stacks.shift?
-        Fiber.stack_pool.release stack
-      end
-    end
   {% end %}
 
   protected def reschedule : Nil
     {% if flag?(:preview_mt) %}
-      get_available_fiber.resume
+      get_available_fiber.tap { |fiber| yield fiber }.resume
     {% else %}
       loop do
         if runnable = @lock.sync { @runnables.shift? }
           unless runnable == Fiber.current
-            runnable.resume
+            runnable.tap { |fiber| yield fiber }.resume
           end
           break
         else
@@ -179,6 +170,10 @@ class Crystal::Scheduler
         end
       end
     {% end %}
+  end
+
+  protected def reschedule : Nil
+    reschedule { }
   end
 
   protected def sleep(time : Time::Span) : Nil

@@ -213,9 +213,10 @@ class Channel(T)
       sender.fiber = Fiber.current
       sender.data = value
       @senders.push pointerof(sender)
-      @lock.unlock
 
-      Crystal::Scheduler.reschedule
+      Crystal::Scheduler.reschedule do |fiber|
+        fiber.add_spin_unlock_helper(@lock)
+      end
 
       case sender.state
       when DeliveryState::Delivered
@@ -290,9 +291,10 @@ class Channel(T)
     else
       receiver.fiber = Fiber.current
       @receivers.push pointerof(receiver)
-      @lock.unlock
 
-      Crystal::Scheduler.reschedule
+      Crystal::Scheduler.reschedule do |fiber|
+        fiber.add_spin_unlock_helper(@lock)
+      end
 
       case receiver.state
       when DeliveryState::Delivered
@@ -445,8 +447,9 @@ class Channel(T)
     shared_state = SelectContextSharedState.new(SelectState::Active)
     contexts = ops.map &.create_context_and_wait(shared_state)
 
-    ops_locks.each &.unlock
-    Crystal::Scheduler.reschedule
+    Crystal::Scheduler.reschedule do |fiber|
+      fiber.add_select_actions_unlock_helper(ops_locks)
+    end
 
     ops.each do |op|
       op.lock

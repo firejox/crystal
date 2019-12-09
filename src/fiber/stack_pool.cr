@@ -7,14 +7,14 @@ class Fiber
 
     def initialize
       @deque = Deque(Void*).new
-      @mutex = Thread::Mutex.new
+      @mutex = Crystal::SpinLock.new
     end
 
     # Removes and frees at most *count* stacks from the top of the pool,
     # returning memory to the operating system.
     def collect(count = lazy_size // 2)
       count.times do
-        if stack = @mutex.synchronize { @deque.shift? }
+        if stack = @mutex.sync { @deque.shift? }
           Crystal::System::Fiber.free_stack(stack, STACK_SIZE)
         else
           return
@@ -24,19 +24,19 @@ class Fiber
 
     # Removes a stack from the bottom of the pool, or allocates a new one.
     def checkout
-      stack = @mutex.synchronize { @deque.pop? } || Crystal::System::Fiber.allocate_stack(STACK_SIZE)
+      stack = @mutex.sync { @deque.pop? } || Crystal::System::Fiber.allocate_stack(STACK_SIZE)
       {stack, stack + STACK_SIZE}
     end
 
     # Appends a stack to the bottom of the pool.
     def release(stack)
-      @mutex.synchronize { @deque.push(stack) }
+      @mutex.sync { @deque.push(stack) }
     end
 
     # Returns the approximated size of the pool. It may be equal or slightly
     # bigger or smaller than the actual size.
     def lazy_size
-      @mutex.synchronize { @deque.size }
+      @mutex.sync { @deque.size }
     end
   end
 end

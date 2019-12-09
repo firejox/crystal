@@ -33,19 +33,23 @@ class Mutex
     loop do
       break if try_lock
 
-      @lock.sync do
-        @queue_count.add(1)
-        if @state.get == 0
-          if @state.swap(1) == 0
-            @queue_count.add(-1)
-            @mutex_fiber = Fiber.current
-            return
-          end
-        end
+      @lock.lock
 
-        @queue.push Fiber.current
+      @queue_count.add(1)
+      if @state.get == 0
+        if @state.swap(1) == 0
+          @queue_count.add(-1)
+          @mutex_fiber = Fiber.current
+
+          @lock.unlock
+          return
+        end
       end
-      Crystal::Scheduler.reschedule
+
+      @queue.push Fiber.current
+      Crystal::Scheduler.reschedule do |fiber|
+        fiber.add_spin_unlock_helper(@lock)
+      end
     end
 
     @mutex_fiber = Fiber.current

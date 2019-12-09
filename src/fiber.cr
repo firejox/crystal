@@ -82,7 +82,6 @@ class Fiber
 
   # :nodoc:
   def run
-    GC.unlock_read
     @proc.call
   rescue ex
     if name = @name
@@ -93,12 +92,6 @@ class Fiber
     ex.inspect_with_backtrace(STDERR)
     STDERR.flush
   ensure
-    {% if flag?(:preview_mt) %}
-      Crystal::Scheduler.enqueue_free_stack @stack
-    {% else %}
-      Fiber.stack_pool.release(@stack)
-    {% end %}
-
     # Remove the current fiber from the linked list
     Fiber.fibers.delete(self)
 
@@ -106,7 +99,13 @@ class Fiber
     @resume_event.try &.free
 
     @alive = false
-    Crystal::Scheduler.reschedule
+
+    {% if flag?(:preview_mt) %}
+      Crystal::Scheduler.reschedule { |fiber| fiber.add_stack_release_helper(@stack) }
+    {% else %}
+      Fiber.stack_pool.release(@stack)
+      Crystal::Scheduler.reschedule
+    {% end %}
   end
 
   def self.current

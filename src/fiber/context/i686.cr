@@ -80,4 +80,40 @@ class Fiber
 
     asm("popl %edi")
   end
+
+  # :nodoc:
+  def add_gc_read_unlock_helper
+    stack_ptr = @context.stack_top.as(Pointer(Void*))
+    @context.stack_top = (stack_ptr - 1).as(Void*)
+    stack_ptr[-1] = (->GC.unlock_read).pointer
+  end
+
+  protected def add_stack_release_helper(s : Void*)
+    proc = ->(ptr : Void*) { Fiber.stack_pool.release(ptr) }
+    stack_ptr = @context.stack_top.as(Pointer(Void*))
+    @context.stack_top = (stack_ptr - 3).as(Void*)
+    stack_ptr[-1] = s
+    stack_ptr[-2] = (->Fiber.load_first_argument).pointer
+    stack_ptr[-3] = proc.pointer
+  end
+
+  # :nodoc:
+  def add_spin_unlock_helper(s : Crystal::SpinLock)
+    proc = ->s.unlock
+    stack_ptr = @context.stack_top.as(Pointer(Void*))
+    @context.stack_top = (stack_ptr - 3).as(Void*)
+    stack_ptr[-1] = s.as(Void*)
+    stack_ptr[-2] = (->Fiber.load_first_argument).pointer
+    stack_ptr[-3] = proc.pointer
+  end
+
+  # :nodoc:
+  def add_select_actions_unlock_helper(s : Array(Channel::SelectAction))
+    proc = ->{ s.each &.unlock }
+    stack_ptr = @context.stack_top.as(Pointer(Void*))
+    @context.stack_top = (stack_ptr - 3).as(Void*)
+    stack_ptr[-1] = proc.closure_data
+    stack_ptr[-2] = (->Fiber.load_first_argument).pointer
+    stack_ptr[-3] = proc.pointer
+  end
 end
