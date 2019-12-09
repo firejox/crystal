@@ -3,6 +3,31 @@ require "./event_libevent"
 class Thread
   # :nodoc:
   getter(event_base) { Crystal::Event::Base.new }
+
+  @exit_event : Crystal::Event?
+
+  # :nodoc:
+  def exit_event : Crystal::Event
+    if (event = @exit_event)
+      event
+    else
+      @exit_event = event_base.new_event(-1, LibEvent2::EventFlags::Persist, self) do |s, flags, data|
+        data.as(Thread).event_base.loop_exit
+      end
+    end
+  end
+
+  @hang_event : Crystal::Event?
+
+  # :nodoc:
+  def hang_event : Crystal::Event
+    if (event = @hang_event)
+      event
+    else
+      @hang_event = event_base.new_event(-1, LibEvent2::EventFlags::Read, self) do |s, flags, data|
+      end
+    end
+  end
 end
 
 module Crystal::EventLoop
@@ -16,6 +41,10 @@ module Crystal::EventLoop
   # Runs the event loop.
   def self.run_once
     event_base.run_once
+  end
+
+  def self.run_loop
+    event_base.run_loop
   end
 
   private def self.event_base

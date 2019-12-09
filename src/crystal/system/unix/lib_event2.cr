@@ -15,6 +15,7 @@ require "c/netdb"
 {% end %}
 lib LibEvent2
   alias Int = LibC::Int
+  alias Short = LibC::Short
 
   {% if flag?(:windows) %}
     # TODO
@@ -48,6 +49,7 @@ lib LibEvent2
   fun event_base_dispatch(eb : EventBase) : Int
   fun event_base_loop(eb : EventBase, flags : EventLoopFlags) : Int
   fun event_base_loopbreak(eb : EventBase) : Int
+  fun event_base_loopexit(eb : EventBase, timeout : LibC::Timeval*) : Int
   fun event_set_log_callback(callback : (Int, UInt8*) -> Nil)
   fun event_enable_debug_mode
   fun event_reinit(eb : EventBase) : Int
@@ -55,6 +57,7 @@ lib LibEvent2
   fun event_free(event : Event)
   fun event_add(event : Event, timeout : LibC::Timeval*) : Int
   fun event_del(event : Event) : Int
+  fun event_active(event : Event, res : Int, ncalls : Short)
 
   type DnsBase = Void*
   type DnsGetAddrinfoRequest = Void*

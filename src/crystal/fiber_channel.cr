@@ -1,23 +1,57 @@
 # :nodoc:
 #
-# This struct wraps around a IO pipe to send and receive fibers between
-# worker threads. The receiving thread will hang on listening for new fibers
-# or fibers that become runnable by the execution of other threads, at the same
-# time it waits for other IO events or timers within the event loop
+# This channel is for sending and receiving fibers between worker threads.
+# When the local runnable queue is empty, the worker thread will query the
+# channel. If the channel is also empty, the worker thread will switch to
+# the loop fiber. The thread will register a receiver in channel and run
+# event loop. Any other fiber sent into channel will activate the event
+# of receiver. The triggered event will exit the event loop.
 struct Crystal::FiberChannel
-  @worker_in : IO::FileDescriptor
-  @worker_out : IO::FileDescriptor
+  struct Receiver
+    include Crystal::PointerLinkedList::Node
+
+    getter event : Crystal::Event
+    property fiber : Fiber?
+
+    def initialize(@event : Crystal::Event)
+    end
+  end
 
   def initialize
-    @worker_out, @worker_in = IO.pipe
+    @mutex = Crystal::SpinLock.new
+    @fibers = Deque(Fiber).new
+    @receivers = Crystal::PointerLinkedList(Receiver).new
   end
 
   def send(fiber : Fiber)
-    @worker_in.write_bytes(fiber.object_id)
+    @mutex.lock
+    if receiver_ptr = @receivers.shift?
+      @mutex.unlock
+      receiver_ptr.value.fiber = fiber
+      receiver_ptr.value.event.active
+    else
+      @fibers.push fiber
+      @mutex.unlock
+    end
   end
 
-  def receive
-    oid = @worker_out.read_bytes(UInt64)
-    Pointer(Fiber).new(oid).as(Fiber)
+  def try_receive(receiver_ptr : Pointer(Receiver))
+    @mutex.lock
+    if fiber = @fibers.shift?
+      @mutex.unlock
+      receiver_ptr.value.fiber = fiber
+      true
+    else
+      @receivers.push receiver_ptr
+      @mutex.unlock
+      false
+    end
+  end
+
+  def swap_fibers(fibers : Deque(Fiber))
+    @mutex.lock
+    current_fibers, @fibers = @fibers, fibers
+    @mutex.unlock
+    current_fibers
   end
 end

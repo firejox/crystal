@@ -37,6 +37,14 @@ struct Crystal::Event
     @freed = true
   end
 
+  def remove
+    LibEvent2.event_del(@event)
+  end
+
+  def active
+    LibEvent2.event_active(@event, 0, 0)
+  end
+
   # :nodoc:
   struct Base
     def initialize
@@ -64,6 +72,10 @@ struct Crystal::Event
 
     def loop_break
       LibEvent2.event_base_loopbreak(@base)
+    end
+
+    def loop_exit
+      LibEvent2.event_base_loopexit(@base, nil)
     end
 
     def new_dns_base(init = true)

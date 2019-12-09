@@ -75,12 +75,23 @@ class Crystal::Scheduler
 
   # :nodoc:
   def initialize(@main : Fiber)
-    @current = @main
+    @loop = @current = @main
     @runnables = Deque(Fiber).new
   end
 
+  protected def loop=(@loop : Fiber)
+  end
+
   protected def enqueue(fiber : Fiber) : Nil
-    @lock.sync { @runnables << fiber }
+    {% if flag?(:preview_mt) %}
+      if @loop == @current
+        @fiber_channel.send fiber
+      else
+        @runnables << fiber
+      end
+    {% else %}
+      @lock.sync { @runnables << fiber }
+    {% end %}
   end
 
   protected def enqueue(fibers : Enumerable(Fiber)) : Nil
@@ -129,6 +140,19 @@ class Crystal::Scheduler
   end
 
   {% if flag?(:preview_mt) %}
+    protected def get_available_fiber
+      if fiber = @runnables.shift?
+        fiber
+      else
+        @runnables = @fiber_channel.swap_fibers(@runnables)
+        if fiber = @runnables.shift?
+          fiber
+        else
+          @loop
+        end
+      end
+    end
+
     protected def enqueue_free_stack(stack)
       @free_stacks.push stack
     end
@@ -141,19 +165,19 @@ class Crystal::Scheduler
   {% end %}
 
   protected def reschedule : Nil
-    loop do
-      if runnable = @lock.sync { @runnables.shift? }
-        unless runnable == Fiber.current
-          runnable.resume
-        end
-        break
-      else
-        Crystal::EventLoop.run_once
-      end
-    end
-
     {% if flag?(:preview_mt) %}
-      release_free_stacks
+      get_available_fiber.resume
+    {% else %}
+      loop do
+        if runnable = @lock.sync { @runnables.shift? }
+          unless runnable == Fiber.current
+            runnable.resume
+          end
+          break
+        else
+          Crystal::EventLoop.run_once
+        end
+      end
     {% end %}
   end
 
@@ -184,34 +208,22 @@ class Crystal::Scheduler
     end
 
     def run_loop
+      th = Thread.current
       loop do
-        @lock.lock
-        if runnable = @runnables.shift?
-          @runnables << Fiber.current
-          @lock.unlock
-          runnable.resume
-        else
-          @sleeping = true
-          @lock.unlock
-          fiber = @fiber_channel.receive
+        receiver = Crystal::FiberChannel::Receiver.new th.exit_event
 
-          @lock.lock
-          @sleeping = false
-          @runnables << Fiber.current
-          @lock.unlock
-          fiber.resume
+        unless @fiber_channel.try_receive(pointerof(receiver))
+          th.hang_event.add
+          Crystal::EventLoop.run_loop
+          th.hang_event.remove
         end
+
+        receiver.fiber.not_nil!.resume
       end
     end
 
     def send_fiber(fiber : Fiber)
-      @lock.lock
-      if @sleeping
-        @fiber_channel.send(fiber)
-      else
-        @runnables << fiber
-      end
-      @lock.unlock
+      @fiber_channel.send fiber
     end
 
     def self.init_workers
@@ -220,7 +232,7 @@ class Crystal::Scheduler
       @@workers = Array(Thread).new(count) do |i|
         if i == 0
           worker_loop = Fiber.new(name: "Worker Loop") { Thread.current.scheduler.run_loop }
-          Thread.current.scheduler.enqueue worker_loop
+          Thread.current.scheduler.loop = worker_loop
           Thread.current
         else
           Thread.new do
