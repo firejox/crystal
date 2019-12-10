@@ -24,8 +24,7 @@ class Thread
     if (event = @hang_event)
       event
     else
-      @hang_event = event_base.new_event(-1, LibEvent2::EventFlags::Read, self) do |s, flags, data|
-      end
+      @hang_event = event_base.new_event(-1, LibEvent2::EventFlags::Read, nil) { }
     end
   end
 end

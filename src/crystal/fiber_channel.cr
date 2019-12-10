@@ -35,7 +35,7 @@ struct Crystal::FiberChannel
     end
   end
 
-  def try_receive(receiver_ptr : Pointer(Receiver))
+  def try_receive(receiver_ptr : Pointer(Receiver)) : Bool
     @mutex.lock
     if fiber = @fibers.shift?
       @mutex.unlock

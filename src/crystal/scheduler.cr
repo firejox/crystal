@@ -204,15 +204,17 @@ class Crystal::Scheduler
 
     def run_loop
       th = Thread.current
+      exit_event = th.exit_event
+      hang_event = th.hang_event
+      receiver = Crystal::FiberChannel::Receiver.new exit_event
+
       loop do
-        receiver = Crystal::FiberChannel::Receiver.new th.exit_event
-
+        receiver.fiber = nil
         unless @fiber_channel.try_receive(pointerof(receiver))
-          th.hang_event.add
+          hang_event.add
           Crystal::EventLoop.run_loop
-          th.hang_event.remove
+          hang_event.remove
         end
-
         receiver.fiber.not_nil!.resume
       end
     end
